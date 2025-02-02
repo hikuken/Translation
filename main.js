@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Screen OCR &amp; Translate</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    #video {
+      max-width: 100%;
+      border: 1px solid #ccc;
+      margin-bottom: 10px;
+    }
+    #result pre {
+      background-color: #f7f7f7;
+      padding: 10px;
+      border: 1px solid #ddd;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+  </style>
+</head>
+<body>
+  <h1>Windows画面のOCRと翻訳</h1>
+  <p>「画面キャプチャ開始」ボタンを押すと、画面全体のキャプチャを取得し、英語のテキストがあれば日本語に翻訳します。</p>
+  <button id="captureBtn">画面キャプチャ開始</button>
+  <br><br>
+  <!-- キャプチャした映像を一旦表示（任意） -->
+  <video id="video" autoplay playsinline></video>
+  <!-- canvasは内部処理用（非表示） -->
+  <canvas id="canvas" style="display:none;"></canvas>
+  <div id="result"></div>
+
+  <!-- Tesseract.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script>
+    const captureBtn = document.getElementById("captureBtn");
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const resultDiv = document.getElementById("result");
+
+    captureBtn.addEventListener("click", async () => {
+      resultDiv.innerHTML = "";
+      try {
+        // 画面キャプチャの取得（ユーザーに許可が求められます）
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        video.srcObject = stream;
+
+        // 動画が読み込まれるのを待つ
+        await new Promise(resolve => video.onloadedmetadata = resolve);
+
+        // 少し待ってからフレームをキャプチャ（画面の更新待ち）
+        setTimeout(async () => {
+          // canvasに映像の1フレームを書き込む
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          // キャプチャしたストリームを停止
+          stream.getTracks().forEach(track => track.stop());
+
+          // canvasから画像データを取得
+          const imageData = canvas.toDataURL("image/png");
+
+          resultDiv.innerHTML = "<p>OCR処理中…</p>";
+
+          // Tesseract.jsでOCR処理（英語認識）
+          Tesseract.recognize(imageData, 'eng', { logger: m => console.log(m) })
+            .then(({ data: { text } }) => {
+              resultDiv.innerHTML = "<h2>検出テキスト</h2><pre>" + text + "</pre>";
+
+              // 英字が含まれているかチェック（正規表現で簡易判定）
+              if (/[A-Za-z]/.test(text)) {
+                resultDiv.innerHTML += "<p>英語テキストを検出。翻訳中…</p>";
+
+                // LibreTranslate APIで英語→日本語翻訳
+                fetch("https://libretranslate.com/translate", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json"
+                  },
+                  body: JSON.stringify({
+                    q: text,
+                    source: "en",
+                    target: "ja",
+                    format: "text"
+                  })
+                })
+                .then(response => response.json())
+                .then(data => {
+                  resultDiv.innerHTML += "<h2>翻訳結果</h2><pre>" + data.translatedText + "</pre>";
+                })
+                .catch(err => {
+                  resultDiv.innerHTML += "<p>翻訳エラー: " + err + "</p>";
+                });
+              } else {
+                resultDiv.innerHTML += "<p>英語テキストは検出されませんでした。</p>";
+              }
+            })
+            .catch(err => {
+              resultDiv.innerHTML = "<p>OCRエラー: " + err + "</p>";
+            });
+        }, 2000);
+      } catch (err) {
+        resultDiv.innerHTML = "<p>キャプチャエラー: " + err + "</p>";
+      }
+    });
+  </script>
+</body>
+</html>
