@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>リアルタイムOCR & 翻訳</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #video { max-width: 100%; border: 1px solid #ccc; margin-bottom: 10px; }
+    #result pre { background-color: #f7f7f7; padding: 10px; border: 1px solid #ddd; white-space: pre-wrap; word-wrap: break-word; }
+  </style>
+</head>
+<body>
+  <h1>リアルタイムOCR & 翻訳</h1>
+  <p>「開始」ボタンを押すと、リアルタイムで画面のOCRを行い、翻訳結果を表示します。</p>
+  <button id="toggleBtn">リアルタイム翻訳開始</button>
+  <br><br>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas" style="display:none;"></canvas>
+  <div id="result"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script>
+    const toggleBtn = document.getElementById("toggleBtn");
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const resultDiv = document.getElementById("result");
+
+    let stream = null;
+    let intervalId = null;
+
+    // OCR & 翻訳処理
+    async function captureAndTranslate() {
+      if (!stream) return;
+
+      const ctx = canvas.getContext("2d");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const imageData = canvas.toDataURL("image/png");
+
+      // OCR処理
+      Tesseract.recognize(imageData, 'eng', { logger: m => console.log(m) })
+        .then(({ data: { text } }) => {
+          if (/[A-Za-z]/.test(text)) {
+            resultDiv.innerHTML = "<h2>検出テキスト</h2><pre>" + text + "</pre>";
+            return fetch("http://localhost:5000/translate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ q: text, source: "en", target: "ja", format: "text" })
+            });
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data && data.translatedText) {
+            resultDiv.innerHTML += "<h2>翻訳結果</h2><pre>" + data.translatedText + "</pre>";
+          }
+        })
+        .catch(err => console.error("OCR/翻訳エラー:", err));
+    }
+
+    // ボタンの動作を設定
+    toggleBtn.addEventListener("click", async () => {
+      if (intervalId) {
+        // 既にOCRループが動作している場合 → 停止
+        clearInterval(intervalId);
+        intervalId = null;
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+        toggleBtn.textContent = "リアルタイム翻訳開始";
+        resultDiv.innerHTML += "<p>OCR/翻訳を停止しました。</p>";
+      } else {
+        // OCRループを開始
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+          video.srcObject = stream;
+          toggleBtn.textContent = "リアルタイム翻訳停止";
+          resultDiv.innerHTML = "<p>OCR/翻訳を開始しました。</p>";
+
+          // OCR を 2秒ごとに実行
+          intervalId = setInterval(captureAndTranslate, 8000);
+        } catch (err) {
+          console.error("キャプチャエラー:", err);
+          resultDiv.innerHTML = "<p>キャプチャエラー: " + err + "</p>";
+        }
+      }
+    });
+  </script>
+</body>
+</html>

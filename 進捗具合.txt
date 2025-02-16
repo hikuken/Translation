@@ -5,3 +5,8 @@
 ・ＡＰＩ課金すればできそうなところまでいってるのかな、。
 
 ・ＯＣＲ機能はNode.jsのインストールがうまくいってできてるっぽい
+
+2/11　
+・Dockerへのビルドは成功
+・httpURLが開かない（http://localhost:5000/languages）
+→docker logs awesome_kareが出力されない
